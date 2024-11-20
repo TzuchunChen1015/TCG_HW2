@@ -6,8 +6,25 @@
 
 #define PIECE_NUM 6
 
+#include <vector>
+struct MetaData {
+  int parent_id = -1;
+  std::vector<int> child_id;
+
+  int win;    // number of wins for the board
+  int loss;   // number of losses for the board
+  int number; // number of game
+
+  void Clear() {
+    child_id.clear();
+    win = loss = number = 0;
+  }
+};
+
 typedef struct _board
 {
+    MetaData metadata;
+
     // all captured: piece_bits becomes 0
     unsigned char piece_bits[2];
     int piece_position[2][PIECE_NUM];

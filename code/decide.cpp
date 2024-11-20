@@ -7,108 +7,142 @@
 #include "math_lib/maths.hpp"
 #include <stdio.h>
 #include <random>
-#define SIMULATION_BATCH_NUM 1000
-#define MAX_SIMULATION_COUNT 600000
+#define SIMULATION_BATCH_NUM 100
+#define MAX_SIMULATION_COUNT 2000000
 
-// MCS UCB version
-// I use max sample number as the simulation limit.
-// Recommend: Using wall clock time to precisely limit the time.
-// Advanced: Using both max sample number and wall clock time to limit the simiulation time.
+// Pre-accounce enough boards memory
+constexpr int MAX_SIZE = 5e5;
+static Board boards[MAX_SIZE + 1];
 
-int MCS_UCB_argmax(Board child_nodes[],int move_num)
-{
-    // you can change the parameter C of the UCB here
-    // if you comment out this line, the default value will be 1.41421
-    // ucb_param_C = 1.41421
+void Simulation(int current_id);
 
-    unsigned int node_sample_num[64] = {};
-    unsigned int win_num[64] = {};
-    unsigned int total_sample_num = 0;
-    // start simulating
-    // Prevent 0 appears in Denominator, do a even sampling first
-    for (int i = 0; i < move_num; i++)
-    {
-        for (int j = 0; j < SIMULATION_BATCH_NUM; j++)
-        {
-            if (child_nodes[i].simulate() == true)
-            {
-                win_num[i] += 1;
-            }
-            node_sample_num[i] += 1;
-            total_sample_num += 1;
+// Directly assign id 0 to the board received
+int MCTS() {
+  while(boards[0].metadata.number < MAX_SIMULATION_COUNT) {
+    int current_id = 0;
+    while(!boards[current_id].metadata.child_id.empty()) {
+      int best_child_id = -1;
+      float best_UCB = 0;
+
+      for(int child : boards[current_id].metadata.child_id) {
+        float child_UCB = fast_UCB(boards[child].metadata.loss, boards[child].metadata.number, boards[current_id].metadata.number);
+        if(best_UCB < child_UCB) {
+          best_UCB = child_UCB;
+          best_child_id = child;
         }
+      }
+      current_id = best_child_id;
     }
-    // Then do MCS UCB
-    while (total_sample_num < MAX_SIMULATION_COUNT)
-    {
-        // find the child which has the highest UCB
-        int argmax = 0;
-        float max_UCB = -1;
-        for (int i = 0; i < move_num; i++)
-        {
-            float child_UCB = fast_UCB(win_num[i], node_sample_num[i], total_sample_num);
-            if (child_UCB > max_UCB)
-            {
-                max_UCB = child_UCB;
-                argmax = i;
-            }
-        }
-        // do simulation on child[argmax]
-        for (int j = 0; j < SIMULATION_BATCH_NUM; j++)
-        {
-            if (child_nodes[argmax].simulate() == true)
-            {
-                win_num[argmax] += 1;
-            }
-            node_sample_num[argmax] += 1;
-            total_sample_num += 1;
-        }
+    if(boards[current_id].check_winner()) {
+      int win = 0;
+      int loss = SIMULATION_BATCH_NUM;
+      int number = SIMULATION_BATCH_NUM;
+      do {
+        boards[current_id].metadata.win += win;
+        boards[current_id].metadata.loss += loss;
+        boards[current_id].metadata.number += number;
+        std::swap(win, loss);
+        current_id = boards[current_id].metadata.parent_id;
+      } while(current_id != -1);
+    } else {
+      Simulation(current_id);
     }
-    // Then return best step according to the win rate
-    // NOT UCB! NOT UCB! NOT UCB!
-    int return_argmax = 0;
-    float max_WR = -1;
-    for (int i = 0; i < move_num; i++)
-    {
-        float child_WR = (float)win_num[i]/(float)node_sample_num[i];
-        if (child_WR > max_WR)
-        {
-            max_WR = child_WR;
-            return_argmax = i;
-        }
+  }
+
+  int best_move = 0;
+  float best_win_rate = 0;
+  for(int i = 0; i < static_cast<int>(boards[0].metadata.child_id.size()); i++) {
+    int child = boards[0].metadata.child_id[i];
+    float win_rate = (float) boards[child].metadata.loss / (float) boards[child].metadata.number;
+    if(best_win_rate < win_rate) {
+      best_win_rate = win_rate;
+      best_move = i;
     }
-    return return_argmax;
+  }
+  return best_move;
+}
+
+static int g_board_id = 0;
+
+void Simulation(int current_id) {
+  boards[current_id].generate_moves();
+
+  int win = 0;
+  int loss = 0;
+  int number = 0;
+
+  for(int i = 0; i < boards[current_id].move_count; i++) {
+    int idx = g_board_id++;
+    boards[current_id].metadata.child_id.push_back(idx);
+    boards[idx] = boards[current_id];
+    boards[idx].metadata.Clear();
+    boards[idx].metadata.parent_id = current_id;
+    boards[idx].move(i);
+
+    for(int j = 0; j < SIMULATION_BATCH_NUM; j++) {
+      if(boards[idx].simulate() == false) {
+        ++boards[idx].metadata.win;
+      } else {
+        ++boards[idx].metadata.loss;
+      }
+      ++boards[idx].metadata.number;
+    }
+
+    win += boards[idx].metadata.win;
+    loss += boards[idx].metadata.loss;
+    number += boards[idx].metadata.number;
+  }
+
+  // backtrack
+  do {
+    std::swap(win, loss);
+    boards[current_id].metadata.win += win;
+    boards[current_id].metadata.loss += loss;
+    boards[current_id].metadata.number += number;
+    current_id = boards[current_id].metadata.parent_id;
+  } while(current_id != -1);
 }
 
 // Except first move, call decide to decide which move to perform
-int Board::decide()
-{
-    generate_moves();
-    // A nice example for expansion
-    // quick and elegant!
-    Board child_nodes[64];
-    for (int i = 0; i < move_count; i++)
-    {
-        Board child = *(this);
-        child.move(i);
-        child_nodes[i] = child;
-    }
-    return MCS_UCB_argmax(child_nodes,move_count);
+int Board::decide() {
+  generate_moves();
+
+  boards[0] = *this;
+  boards[0].metadata.Clear();
+  g_board_id = 1;
+
+  return MCTS();
 }
 
 // Only used in first move
-int Board::first_move_decide_dice()
-{
-    // A nice example for expansion
-    // quick and elegant!
-    Board child_nodes[PIECE_NUM];
-    for (int i = 0; i < PIECE_NUM; i++)
-    {
-        Board board_copy = *(this);
-        board_copy.dice=i;
-        child_nodes[i] = board_copy;
+int Board::first_move_decide_dice() {
+  boards[0] = *this;
+  boards[0].metadata.Clear();
+  g_board_id = 1;
+  
+  for(int i = 0; i < PIECE_NUM; i++) {
+    int idx = g_board_id++;
+    boards[0].metadata.child_id.push_back(idx);
+    boards[idx] = boards[0];
+    boards[idx].dice = i;
+    boards[idx].metadata.Clear();
+    boards[idx].metadata.parent_id = 0;
+  
+    for(int j = 0; j < SIMULATION_BATCH_NUM; j++) {
+      if(boards[idx].simulate() == false) {
+        ++boards[idx].metadata.win;
+      } else {
+        ++boards[idx].metadata.loss;
+      }
+      ++boards[idx].metadata.number;
     }
-    return MCS_UCB_argmax(child_nodes,PIECE_NUM);
+  
+    boards[0].metadata.win += boards[idx].metadata.loss;
+    boards[0].metadata.loss += boards[idx].metadata.win;
+    boards[0].metadata.number += boards[idx].metadata.number;
+  }
+
+  return MCTS();
 }
 // You should use mersenne twister and a random_device seed for the simulation
 // But no worries, I've done it for you. Hope it can save you some time!
