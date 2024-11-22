@@ -6,17 +6,16 @@
 
 #define PIECE_NUM 6
 
-#include <vector>
 struct MetaData {
   int parent_id = -1;
-  std::vector<int> child_id;
+  int child_from, child_to;
 
   int win;    // number of wins for the board
   int loss;   // number of losses for the board
   int number; // number of game
 
-  void Clear() {
-    child_id.clear();
+  void operator= (const MetaData& rhs) {
+    child_from = child_to = -1;
     win = loss = number = 0;
   }
 };

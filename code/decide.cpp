@@ -20,15 +20,15 @@ void Simulation(int current_id);
 int MCTS() {
   while(boards[0].metadata.number < MAX_SIMULATION_COUNT) {
     int current_id = 0;
-    while(!boards[current_id].metadata.child_id.empty()) {
+    while(boards[current_id].metadata.child_from != -1) {
       int best_child_id = -1;
       float best_UCB = 0;
 
-      for(int child : boards[current_id].metadata.child_id) {
-        float child_UCB = fast_UCB(boards[child].metadata.loss, boards[child].metadata.number, boards[current_id].metadata.number);
+      for(int child_id = boards[current_id].metadata.child_from; child_id <= boards[current_id].metadata.child_to; child_id++) {
+        float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
         if(best_UCB < child_UCB) {
           best_UCB = child_UCB;
-          best_child_id = child;
+          best_child_id = child_id;
         }
       }
       current_id = best_child_id;
@@ -51,12 +51,11 @@ int MCTS() {
 
   int best_move = 0;
   float best_win_rate = 0;
-  for(int i = 0; i < static_cast<int>(boards[0].metadata.child_id.size()); i++) {
-    int child = boards[0].metadata.child_id[i];
-    float win_rate = (float) boards[child].metadata.loss / (float) boards[child].metadata.number;
+  for(int child_id = boards[0].metadata.child_from; child_id <= boards[0].metadata.child_to; child_id++) {
+    float win_rate = (float) boards[child_id].metadata.loss / (float) boards[child_id].metadata.number;
     if(best_win_rate < win_rate) {
       best_win_rate = win_rate;
-      best_move = i;
+      best_move = child_id - 1; // because boards[0]'s children ID starts from 1
     }
   }
   return best_move;
@@ -66,16 +65,17 @@ static int g_board_id = 0;
 
 void Simulation(int current_id) {
   boards[current_id].generate_moves();
+  boards[current_id].metadata.child_from = g_board_id;
+  g_board_id += boards[current_id].move_count;
+  boards[current_id].metadata.child_to = g_board_id - 1;
 
   int win = 0;
   int loss = 0;
   int number = 0;
 
   for(int i = 0; i < boards[current_id].move_count; i++) {
-    int idx = g_board_id++;
-    boards[current_id].metadata.child_id.push_back(idx);
+    int idx = i + boards[current_id].metadata.child_from;
     boards[idx] = boards[current_id];
-    boards[idx].metadata.Clear();
     boards[idx].metadata.parent_id = current_id;
     boards[idx].move(i);
 
@@ -85,8 +85,8 @@ void Simulation(int current_id) {
       } else {
         ++boards[idx].metadata.loss;
       }
-      ++boards[idx].metadata.number;
     }
+    boards[idx].metadata.number = SIMULATION_BATCH_NUM;
 
     win += boards[idx].metadata.win;
     loss += boards[idx].metadata.loss;
@@ -108,7 +108,6 @@ int Board::decide() {
   generate_moves();
 
   boards[0] = *this;
-  boards[0].metadata.Clear();
   g_board_id = 1;
 
   return MCTS();
@@ -117,29 +116,27 @@ int Board::decide() {
 // Only used in first move
 int Board::first_move_decide_dice() {
   boards[0] = *this;
-  boards[0].metadata.Clear();
-  g_board_id = 1;
+  boards[0].metadata.child_from = 1;
+  boards[0].metadata.child_to = PIECE_NUM;
+  g_board_id = PIECE_NUM + 1;
   
-  for(int i = 0; i < PIECE_NUM; i++) {
-    int idx = g_board_id++;
-    boards[0].metadata.child_id.push_back(idx);
-    boards[idx] = boards[0];
-    boards[idx].dice = i;
-    boards[idx].metadata.Clear();
-    boards[idx].metadata.parent_id = 0;
+  for(int i = 1; i <= PIECE_NUM; i++) {
+    boards[i] = boards[0];
+    boards[i].dice = i - 1;
+    boards[i].metadata.parent_id = 0;
   
     for(int j = 0; j < SIMULATION_BATCH_NUM; j++) {
-      if(boards[idx].simulate() == false) {
-        ++boards[idx].metadata.win;
+      if(boards[i].simulate() == false) {
+        ++boards[i].metadata.win;
       } else {
-        ++boards[idx].metadata.loss;
+        ++boards[i].metadata.loss;
       }
-      ++boards[idx].metadata.number;
     }
+    boards[i].metadata.number = SIMULATION_BATCH_NUM;
   
-    boards[0].metadata.win += boards[idx].metadata.loss;
-    boards[0].metadata.loss += boards[idx].metadata.win;
-    boards[0].metadata.number += boards[idx].metadata.number;
+    boards[0].metadata.win += boards[i].metadata.loss;
+    boards[0].metadata.loss += boards[i].metadata.win;
+    boards[0].metadata.number += boards[i].metadata.number;
   }
 
   return MCTS();
