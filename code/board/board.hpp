@@ -8,14 +8,16 @@
 
 struct MetaData {
   int parent_id = -1;
-  int child_from, child_to;
 
-  int win;    // number of wins for the board
-  int loss;   // number of losses for the board
-  int number; // number of game
+  int first_child_id;
+  long long int child_bit;
+
+  int win;
+  int loss;
+  int number;
 
   void operator= (const MetaData& rhs) {
-    child_from = child_to = -1;
+    first_child_id = -1;
     win = loss = number = 0;
   }
 };
@@ -44,4 +46,5 @@ typedef struct _board
     int decide();
     int first_move_decide_dice();
 } Board;
+
 #endif
