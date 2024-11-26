@@ -22,17 +22,36 @@ int MCTS() {
     /* Selection */
     int current_id = 0;
     while(boards[current_id].metadata.first_child_id != -1) {
+      /* Pruning with LCB and UCB */
+      long long int bit = 1;
+      float best_LCB = 0;
+      for(int i = 0, child_id = boards[current_id].metadata.first_child_id; i < boards[current_id].move_count; i++, child_id++) {
+        if((boards[current_id].metadata.child_bit & bit)) {
+          float child_LCB = fast_LCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
+          if(best_LCB < child_LCB) {
+            best_LCB = child_LCB;
+          }
+        }
+        bit <<= 1;
+      }
+
+      bit = 1;
       int best_child_id = -1;
       float best_UCB = 0;
-
       for(int i = 0, child_id = boards[current_id].metadata.first_child_id; i < boards[current_id].move_count; i++, child_id++) {
-        float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
-        if(best_UCB < child_UCB) {
-          best_UCB = child_UCB;
-          best_child_id = child_id;
+        if((boards[current_id].metadata.child_bit & bit)) {
+          float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
+          if(child_UCB < best_LCB) {
+            boards[current_id].metadata.child_bit &= (~bit);
+          } else if(best_UCB < child_UCB) {
+            best_UCB = child_UCB;
+            best_child_id = child_id;
+          }
         }
+        bit <<= 1;
       }
       current_id = best_child_id;
+      /* Pruning with LCB and UCB */
     }
     /* Selection */
     if(boards[current_id].check_winner()) {
@@ -51,14 +70,18 @@ int MCTS() {
     }
   }
 
+  long long int bit = 1;
   int best_move = 0;
   float best_win_rate = 0;
   for(int i = 0, child_id = boards[0].metadata.first_child_id; i < boards[0].move_count; i++, child_id++) {
-    float win_rate = (float) boards[child_id].metadata.loss / (float) boards[child_id].metadata.number;
-    if(best_win_rate < win_rate) {
-      best_win_rate = win_rate;
-      best_move = i;
+    if((boards[0].metadata.child_bit & bit)) {
+      float win_rate = (float) boards[child_id].metadata.loss / (float) boards[child_id].metadata.number;
+      if(best_win_rate < win_rate) {
+        best_win_rate = win_rate;
+        best_move = i;
+      }
     }
+    bit <<= 1;
   }
   return best_move;
 }
