@@ -37,7 +37,7 @@ float best_UCB_array[MAX_SIZE_OPPONENT_MINUS_MINE];
 
 int PruningWithOpponentMinusMine(int current_id);
 int PruningUCBWithBestLCB(int current_id);
-int PruningWithMeanAndStandardDeviation(int current_id);
+int ProgressivePruning(int current_id);
 
 int MCTS() {
   while(boards[0].metadata.number < MAX_SIMULATION_COUNT) {
@@ -47,7 +47,7 @@ int MCTS() {
       /* Pruning */
       current_id = PruningWithOpponentMinusMine(current_id);
       // current_id = PruningUCBWithBestLCB(current_id);
-      // current_id = PruningWithMeanAndStandardDeviation(current_id);
+      // current_id = ProgressivePruning(current_id);
       /* Pruning */
     }
     /* Selection */
@@ -274,6 +274,42 @@ int PruningUCBWithBestLCB(int current_id) {
   return best_child_id;
 }
 
-int PruningWithMeanAndStandardDeviation(int current_id) {
-  return 0;
+int ProgressivePruning(int current_id) {
+  static constexpr float rd = 3;
+
+  long long int bit = 1;
+  float best_mu_l = 0;
+  for(int i = 0, child_id = boards[current_id].metadata.first_child_id; i < boards[current_id].move_count; i++, child_id++) {
+    if((boards[current_id].metadata.child_bit & bit)) {
+      float mean = (float) boards[child_id].metadata.loss / (float) boards[child_id].metadata.number;
+      float variance = (float) boards[child_id].metadata.loss * (1 - mean) * (1 - mean) + (float) boards[child_id].metadata.win * mean * mean;
+      float child_mu_l = mean - rd * std::sqrt(variance);
+      if(best_mu_l < child_mu_l) {
+        best_mu_l = child_mu_l;
+      }
+    }
+    bit <<= 1;
+  }
+
+  bit = 1;
+  int best_child_id = -1;
+  float best_UCB = 0;
+  for(int i = 0, child_id = boards[current_id].metadata.first_child_id; i < boards[current_id].move_count; i++, child_id++) {
+    if((boards[current_id].metadata.child_bit & bit)) {
+      float mean = (float) boards[child_id].metadata.loss / (float) boards[child_id].metadata.number;
+      float variance = (float) boards[child_id].metadata.loss * (1 - mean) * (1 - mean) + (float) boards[child_id].metadata.win * mean * mean;
+      float child_mu_r = mean + rd * std::sqrt(variance);
+      if(best_mu_l > child_mu_r) {
+        boards[current_id].metadata.child_bit &= (~bit);
+      } else {
+        float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
+        if(best_UCB < child_UCB) {
+          best_UCB = child_UCB;
+          best_child_id = child_id;
+        }
+      }
+    }
+    bit <<= 1;
+  }
+  return best_child_id;
 }
