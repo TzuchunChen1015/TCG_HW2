@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <random>
 #define SIMULATION_BATCH_NUM 100
-#define MAX_SIMULATION_COUNT 2000000
+#define MAX_SIMULATION_COUNT 3500000
 
 // Pre-accounce enough boards memory
 constexpr int MAX_SIZE = 5e5;
