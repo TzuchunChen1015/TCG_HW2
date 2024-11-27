@@ -35,59 +35,19 @@ int GetNumberOfBit(int bits) {
 constexpr int MAX_SIZE_OPPONENT_MINUS_MINE = 15;
 float best_UCB_array[MAX_SIZE_OPPONENT_MINUS_MINE];
 
+int PruningWithOpponentMinusMine(int current_id);
+int PruningUCBWithBestLCB(int current_id);
+int PruningWithMeanAndStandardDeviation(int current_id);
+
 int MCTS() {
   while(boards[0].metadata.number < MAX_SIMULATION_COUNT) {
     /* Selection */
     int current_id = 0;
     while(boards[current_id].metadata.first_child_id != -1) {
       /* Pruning */
-      for(int i = 0; i < MAX_SIZE_OPPONENT_MINUS_MINE; i++) {
-        best_UCB_array[i] = 0;
-      }
-      
-      int first_child_id = boards[current_id].metadata.first_child_id;
-      long long int bit = 1;
-
-      for(int i = 0; i < boards[current_id].move_count; i++) {
-        if((boards[current_id].metadata.child_bit & bit)) {
-          int child_id = first_child_id + i;
-          int opponent = helper::GetNumberOfBit(boards[child_id].piece_bits[(1 ^ boards[current_id].moving_color)]);
-          int mine = helper::GetNumberOfBit(boards[child_id].piece_bits[boards[current_id].moving_color]);
-          float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
-          if(best_UCB_array[opponent - mine + 6] < child_UCB) {
-            best_UCB_array[opponent - mine + 6] = child_UCB;
-          }
-        }
-        bit <<= 1;
-      }
-
-      for(int i = MAX_SIZE_OPPONENT_MINUS_MINE - 2; i >= 0; i--) {
-        if(best_UCB_array[i] < best_UCB_array[i + 1]) {
-          best_UCB_array[i] = best_UCB_array[i + 1];
-        }
-      }
-
-      bit = 1;
-      int best_child_id = -1;
-      float best_UCB = 0;
-      for(int i = 0; i < boards[current_id].move_count; i++) {
-        if((boards[current_id].metadata.child_bit & bit)) {
-          int child_id = first_child_id + i;
-          int opponent = helper::GetNumberOfBit(boards[child_id].piece_bits[(1 ^ boards[current_id].moving_color)]);
-          int mine = helper::GetNumberOfBit(boards[child_id].piece_bits[boards[current_id].moving_color]);
-          float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
-          if(best_UCB_array[opponent - mine + 6 + 1] > child_UCB) { // if others' opponent_minus_mine and UCB are both
-            boards[current_id].metadata.child_bit &= (~bit);        // greater than yours, than you should be pruned.
-          } else {
-            if(best_UCB < child_UCB) {
-              best_UCB = child_UCB;
-              best_child_id = child_id;
-            }
-          }
-        }
-        bit <<= 1;
-      }
-      current_id = best_child_id;
+      current_id = PruningWithOpponentMinusMine(current_id);
+      // current_id = PruningUCBWithBestLCB(current_id);
+      // current_id = PruningWithMeanAndStandardDeviation(current_id);
       /* Pruning */
     }
     /* Selection */
@@ -231,4 +191,89 @@ bool Board::simulate()
     // Lose!
     else
         return false;
+}
+
+/* Pruning Algorithm */
+int PruningWithOpponentMinusMine(int current_id) {
+  for(int i = 0; i < MAX_SIZE_OPPONENT_MINUS_MINE; i++) {
+    best_UCB_array[i] = 0;
+  }
+  
+  int first_child_id = boards[current_id].metadata.first_child_id;
+  long long int bit = 1;
+
+  for(int i = 0; i < boards[current_id].move_count; i++) {
+    if((boards[current_id].metadata.child_bit & bit)) {
+      int child_id = first_child_id + i;
+      int opponent = helper::GetNumberOfBit(boards[child_id].piece_bits[(1 ^ boards[current_id].moving_color)]);
+      int mine = helper::GetNumberOfBit(boards[child_id].piece_bits[boards[current_id].moving_color]);
+      float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
+      if(best_UCB_array[opponent - mine + 6] < child_UCB) {
+        best_UCB_array[opponent - mine + 6] = child_UCB;
+      }
+    }
+    bit <<= 1;
+  }
+
+  for(int i = MAX_SIZE_OPPONENT_MINUS_MINE - 2; i >= 0; i--) {
+    if(best_UCB_array[i] < best_UCB_array[i + 1]) {
+      best_UCB_array[i] = best_UCB_array[i + 1];
+    }
+  }
+
+  bit = 1;
+  int best_child_id = -1;
+  float best_UCB = 0;
+  for(int i = 0; i < boards[current_id].move_count; i++) {
+    if((boards[current_id].metadata.child_bit & bit)) {
+      int child_id = first_child_id + i;
+      int opponent = helper::GetNumberOfBit(boards[child_id].piece_bits[(1 ^ boards[current_id].moving_color)]);
+      int mine = helper::GetNumberOfBit(boards[child_id].piece_bits[boards[current_id].moving_color]);
+      float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
+      if(best_UCB_array[opponent - mine + 6 + 1] > child_UCB) { // if others' opponent_minus_mine and UCB are both
+        boards[current_id].metadata.child_bit &= (~bit);        // greater than yours, than you should be pruned.
+      } else {
+        if(best_UCB < child_UCB) {
+          best_UCB = child_UCB;
+          best_child_id = child_id;
+        }
+      }
+    }
+    bit <<= 1;
+  }
+  return best_child_id;
+}
+int PruningUCBWithBestLCB(int current_id) {
+  long long int bit = 1;
+  float best_LCB = 0;
+  for(int i = 0, child_id = boards[current_id].metadata.first_child_id; i < boards[current_id].move_count; i++, child_id++) {
+    if((boards[current_id].metadata.child_bit & bit)) {
+      float child_LCB = fast_LCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
+      if(best_LCB < child_LCB) {
+        best_LCB = child_LCB;
+      }
+    }
+    bit <<= 1;
+  }
+
+  bit = 1;
+  int best_child_id = -1;
+  float best_UCB = 0;
+  for(int i = 0, child_id = boards[current_id].metadata.first_child_id; i < boards[current_id].move_count; i++, child_id++) {
+    if((boards[current_id].metadata.child_bit & bit)) {
+      float child_UCB = fast_UCB(boards[child_id].metadata.loss, boards[child_id].metadata.number, boards[current_id].metadata.number);
+      if(child_UCB < best_LCB) {
+        boards[current_id].metadata.child_bit &= (~bit);
+      } else if(best_UCB < child_UCB) {
+        best_UCB = child_UCB;
+        best_child_id = child_id;
+      }
+    }
+    bit <<= 1;
+  }
+  return best_child_id;
+}
+
+int PruningWithMeanAndStandardDeviation(int current_id) {
+  return 0;
 }
