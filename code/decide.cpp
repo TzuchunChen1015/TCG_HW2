@@ -151,6 +151,7 @@ int Board::first_move_decide_dice() {
   for(int child_id = 1; child_id <= PIECE_NUM; child_id++) {
     boards[child_id] = boards[0];
     boards[child_id].dice = child_id - 1;
+    boards[child_id].moving_color ^= 1;
     boards[child_id].metadata.parent_id = 0;
   
     for(int i = 0; i < SIMULATION_BATCH_NUM; i++) {
